@@ -27,7 +27,7 @@ Unfortunately, it is very cumbersome to do interesting things directly with fast
 - Enhanced a MD5 library to output the current IHV (Python's hashlib does NOT)
 - Utility functions
     - Pad data to MD5 block size
-    - A filter generator that will collision blocks if they contain certain binary substrings
+    - A filter generator that will not allow collision blocks if they contain certain binary substrings
     - Direct access to a wrapper around fastcoll that takes in an IHV and outputs a tuple of the 2 collision parts.
 - Collider class
     - Pass in data chunks to build the file
