@@ -1,10 +1,11 @@
 # Python MD5 Collision Library
 by Stephen Halm (smhalm2)
+for CS 460 SP15
 
 I don't currently have a creative name for this library. I was hoping to use MD5SuperCollider, but that's [taken](https://github.com/culmor30/MD5-SuperCollider).
 
 ## Installation
-Fitst, this library currently only runs on Linux because it uses some unix commands (tested with Ubuntu). It may work on Mac, but that is untested. The library is designed for Python 3 and it requires the boost library headers as a dependency. Obviously standard C compilation packages including gcc are also required. One of the demos outputs Python 2 scripts (not feasible to do in v3), so also have Python 2 to make that work.
+First, this library currently only runs on Linux because it uses some unix commands (tested with Ubuntu). It may work on Mac, but that is untested. The library is designed for Python 3 and it requires the boost library headers as a dependency. Obviously standard C compilation packages including gcc are also required. One of the demos outputs Python 2 scripts (not feasible to do in v3), so also have Python 2 to make that work.
 
 ```sh
 $ sudo apt-get install libboost-all-dev
