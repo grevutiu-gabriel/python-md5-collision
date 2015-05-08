@@ -14,7 +14,7 @@ $ sudo apt-get install python3
 ```
 
 ## Description
-This library is contained within `coll.py` (which depends on `md5.py`) and can be used to generate a collection of different files that all have the same MD5 hash. To accomplish this task, I used the [chosen prefix attack](https://en.wikipedia.org/wiki/Collision_attack#Chosen-prefix_collision_attack) from [Marc Stevens'](https://marc-stevens.nl/p/hashclash/) hashcoll program. His program allows one to supply the intermediate hash value (IHV) of the MD5 function and get two pairs of 2 blocks (128 bytes each) that are different yet, after the next 2 block iterations will result the IHVs would be the same.
+This library is contained within `coll.py` (which depends on `md5.py`) and can be used to generate a collection of different files that all have the same MD5 hash. To accomplish this task, I used the [chosen prefix attack](https://en.wikipedia.org/wiki/Collision_attack#Chosen-prefix_collision_attack) from [Marc Stevens'](https://marc-stevens.nl/p/hashclash/) hashcoll program. His program allows one to supply the intermediate hash value (IHV) of the MD5 function and get two pairs of 2 blocks (128 bytes each) that are different yet, after the next 2 block iterations the IHVs will be the same.
 
 The effect of this attack is that given some prefix (starting) data, we can come up with a pair of possible suffix data that are different yet result in the same hash overall when concatentated onto the starting data. `MD5(prefix + collision1a) = MD5(prefix + collision1b)`. We can even extend the above by the inherent linear progression property of MD5. We can use the suffix pair above to generate more complex files: `MD5(prefix + collision1a + moreData)  = MD5(prefix + collision1b + moreData)`. 
 
