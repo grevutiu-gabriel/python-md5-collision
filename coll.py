@@ -31,8 +31,7 @@ if not os.path.exists(FASTCOLL_PLACE):
     if r == 0:
         print('done preparing fastcoll')
     else:
-        print('err: could not compile fastcoll')
-        sys.exit(1)
+        raise Exception('could not compile fastcoll')
 
 ### utilities for payload construction
     

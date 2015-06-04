@@ -38,9 +38,7 @@ for i in range(0, len(compdata), 64):
         
 
 if not (first and second):
-    print('error: did not find strings')
-    print(first, second)
-    sys.exit(1)
+    raise Exception('error: did not find marker strings')
 
 # Splice in the collision blocks according to the obtained offsets
 collider = Collider(blockfilter=filter_disallow_binstrings([b'\0']))
