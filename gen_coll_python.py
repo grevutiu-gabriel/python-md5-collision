@@ -60,13 +60,12 @@ collider.bincat(postfix)
 cols = collider.get_collisions()
 
 GOOD = 'out_py_good.py'
-BAD = 'out_py_evil.py'
+EVIL = 'out_py_evil.py'
 
 with open(GOOD,  'wb') as good:
     good.write(next(cols))
     
-with open(BAD, 'wb') as evil:
+with open(EVIL, 'wb') as evil:
     evil.write(next(cols))
 
-os.system('chmod +x %s' % GOOD)
-os.system('chmod +x %s' % BAD)
+os.system('chmod +x {} {}'.format(GOOD, EVIL))

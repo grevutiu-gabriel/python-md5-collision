@@ -65,11 +65,11 @@ def collide(iv):
     
     ivhex = binascii.hexlify(iv).decode()
     
-    f0, f1 = 'out-%s-0' % ivhex, 'out-%s-1' % ivhex
+    f0, f1 = 'out-{}-0'.format(ivhex), 'out-{}-1'.format(ivhex)
     
     # developer toggle of whether to display output
     plus = '  > /dev/null 2>&1'
-    os.system(('./fastcoll --ihv %s -o %s %s' + plus) % (ivhex, f0, f1))
+    os.system('./fastcoll --ihv {} -o {} {}{}'.format(ivhex, f0, f1, plus))
     
     with open(f0, 'rb') as f0d:
         b0 = f0d.read()

@@ -6,7 +6,7 @@ import os, sys
 # First compile the C code into a binary
 temp = 'out_c_demo_temp'
 
-os.system('gcc c_demo.c -o %s' % temp)
+os.system('gcc c_demo.c -o {}'.format(temp))
 
 with open(temp, 'rb') as tempfile:
     compdata = bytearray(tempfile.read())
@@ -53,14 +53,13 @@ collider.bincat(compdata[first+128:second] + c1 + compdata[second+128:])
 cols = collider.get_collisions()
 
 GOOD = 'out_c_good'
-BAD = 'out_c_evil'
+EVIL = 'out_c_evil'
 
 with open(GOOD,  'wb') as good:
     good.write(next(cols))
     
-with open(BAD, 'wb') as evil:
+with open(EVIL, 'wb') as evil:
     evil.write(next(cols))
 
-os.system('chmod +x %s' % GOOD)
-os.system('chmod +x %s' % BAD)
+os.system('chmod +x {} {}'.format(GOOD, EVIL))
 os.remove(temp)
