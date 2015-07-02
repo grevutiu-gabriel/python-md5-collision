@@ -55,14 +55,14 @@ def filter_disallow_binstrings(strs):
     
 ### generating a collision
     
-def collide(iv):
-    '''Returns a tuple pair of binary block alternatives that still result in same MD5 from the iv.'''
+def collide(ihv):
+    '''Returns a tuple pair of binary block alternatives that still result in same MD5 from the IHV.'''
     # a.k.a it generates a chosen prefix collision
     # This is very hackish, but what else can be done when the fastcoll license is so restrictive?
     back = os.getcwd()
     os.chdir(FASTCOLL_PLACE)
     
-    ivhex = binascii.hexlify(iv).decode()
+    ivhex = binascii.hexlify(ihv).decode()
     
     f0, f1 = 'out-{}-0'.format(ivhex), 'out-{}-1'.format(ivhex)
     
@@ -136,7 +136,7 @@ class Collider:
         
         # run until the blockfilter passes
         while True:
-            b0, b1 = collide(self.digester.current_iv())
+            b0, b1 = collide(self.digester.ihv())
             if blockfilter(b0) and blockfilter(b1):
                 break
         

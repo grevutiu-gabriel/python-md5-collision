@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """A sample implementation of MD5 in pure Python.
 
@@ -333,17 +333,17 @@ class MD5:
             self.input = self.input + list(map(ident, inBuf))
 
 
-    def current_iv(self):
+    def ihv(self):
         """Get the current iv, if there is a partial block, ignore it"""
         # Store state in digest.
-        iv = _long2bytes(self.A << 96, 16)[:4] + \
+        ihv = _long2bytes(self.A << 96, 16)[:4] + \
                  _long2bytes(self.B << 64, 16)[4:8] + \
                  _long2bytes(self.C << 32, 16)[8:12] + \
                  _long2bytes(self.D, 16)[12:]
-        return iv
+        return ihv
     
-    def hexcurrent_iv(self):
-        return binascii.hexlify(self.current_iv()).decode()
+    def hexihv(self):
+        return binascii.hexlify(self.ihv()).decode()
 
     def digest(self):
         """Terminate the message-digest computation and return digest.
