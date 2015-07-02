@@ -24,7 +24,7 @@ Unfortunately, it is very cumbersome to do interesting things directly with fast
 
 ### My work
 - Automatic download and compilation of fastcoll
-- Made an MD5 library Python 3 compatible and enhanced it to output the current IHV (Python's hashlib does NOT)
+- Wrote a Python 3 compatible MD5 library that exposes internals including the current IHV (Python's hashlib does NOT)
 - Utility functions
     - Pad data to MD5 block size
     - A filter generator that will not allow collision blocks if they contain certain binary substrings

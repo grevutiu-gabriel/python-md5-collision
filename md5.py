@@ -1,448 +1,187 @@
 #!/usr/bin/env python3
 
-"""A sample implementation of MD5 in pure Python.
+"""An implementation of MD5 that exposes internals and is directly built up
+from mathematical primitives from the MD5 specification.
 
-This is an implementation of the MD5 hash function, as specified by
-RFC 1321, in pure Python. It was implemented using Bruce Schneier's
-excellent book "Applied Cryptography", 2nd ed., 1996.
+It achieves about 500KB/s, or 1/1000x of GNU md5sum.
+Thus, this is not an implementation great for larges amounts of hashing.
+Instead, the point is access to internals."""
 
-Surely this is not meant to compete with the existing implementation
-of the Python standard library (written in C). Rather, it should be
-seen as a Python complement that is more readable than C and can be
-used more conveniently for learning and experimenting purposes in
-the field of cryptography.
+__date__ = '2015-07-02'
+__version__ = 0.8
 
-This module tries very hard to follow the API of the existing Python
-standard library's "md5" module, but although it seems to work fine,
-it has not been extensively tested! (But note that there is a test
-module, test_md5py.py, that compares this Python implementation with
-the C one of the Python standard library.
+import math
+import binascii
 
-BEWARE: this comes with no guarantee whatsoever about fitness and/or
-other properties! Specifically, do not use this in any production
-code! License is Python License!
+# util
+bin_to_words = lambda x: [x[4*i:4*(i+1)] for i in range(len(x)//4)]
+words_to_bin = lambda x: b''.join(x)
+word_to_int = lambda x: int.from_bytes(x, 'little')
+int_to_word = lambda x: x.to_bytes(4, 'little')
+bin_to_int = lambda x: list(map(word_to_int, bin_to_words(x)))
+int_to_bin = lambda x: words_to_bin(map(int_to_word, x))
+mod32bit = lambda x: x % 2**32
+rotleft = lambda x,n: (x << n) | (x >> (32-n))
 
-Special thanks to Aurelian Coman who fixed some nasty bugs!
+# initial state
+IHV0_HEX = '0123456789abcdeffedcba9876543210'
+IHV0 = bin_to_int(binascii.unhexlify(IHV0_HEX.encode()))
 
-Dinu C. Gherman
+# parameters
+BLOCK_SIZE = 64 # 512 bits (64 bytes)
+ROUNDS = BLOCK_SIZE
 
-------> Adatped to Python 3 and to include IV extraction by Stephen Halm
-"""
+# addition constants
+AC = [int(2**32 * abs(math.sin(t+1))) for t in range(ROUNDS)]
 
+# rotation constants
+RC = [7,12,17,22] * 4 + [5,9,14,20] * 4 + [4,11,16,23] * 4 + [6,10,15,21] * 4
 
-__date__    = '2015-04-06'
-__version__ = 0.95
+# non-linear functions
+F = lambda x,y,z: (x & y) ^ (~x & z)
+G = lambda x,y,z: (z & x) ^ (~z & y)
+H = lambda x,y,z: x ^ y ^ z
+I = lambda x,y,z: y ^ (x | ~z)
+Fx = [F] * 16 + [G] * 16 + [H] * 16 + [I] * 16
 
+# data selection
+M1 = lambda t: t
+M2 = lambda t: (1 + 5*t) % 16
+M3 = lambda t: (5 + 3*t) % 16
+M4 = lambda t: (7*t) % 16
+Mx = [M1] * 16 + [M2] * 16 + [M3] * 16 + [M4] * 16
+Wx = [mxi(i) for i,mxi in enumerate(Mx)]
 
-import struct, string, copy, binascii
-
-
-# ======================================================================
-# Bit-Manipulation helpers
-#
-#   _long2bytes() was contributed by Barry Warsaw
-#   and is reused here with tiny modifications.
-# ======================================================================
-
-def _long2bytes(n, blocksize=0):
-    """Convert a long integer to a byte string.
-
-    If optional blocksize is given and greater than zero, pad the front
-    of the byte string with binary zeros so that the length is a multiple
-    of blocksize.
-    """
-
-    # After much testing, this algorithm was deemed to be the fastest.
-    s = b''
-    pack = struct.pack
-    while n > 0:
-        ### CHANGED FROM '>I' TO '<I'. (DCG)
-        s = pack('<I', n & 0xffffffff) + s
-        ### --------------------------
-        n = n >> 32
-
-    # Strip off leading zeros.
-    for i in range(len(s)):
-        if s[i] != b'\000':
-            break
-    else:
-        # Only happens when n == 0.
-        s = b'\000'
-        i = 0
-
-    s = s[i:]
-
-    # Add back some pad bytes. This could be done more efficiently
-    # w.r.t. the de-padding being done above, but sigh...
-    if blocksize > 0 and len(s) % blocksize:
-        s = (blocksize - len(s) % blocksize) * b'\000' + s
-
-    return s
-
-
-def _bytelist2long(list):
-    "Transform a list of characters into a list of longs."
-
-    imax = len(list)//4
-    hl = [0] * imax
-
-    j = 0
-    i = 0
-    while i < imax:
-        b0 = ((list[j]))
-        b1 = (((list[j+1]))) << 8
-        b2 = (((list[j+2]))) << 16
-        b3 = (((list[j+3]))) << 24
-        hl[i] = b0 | b1 |b2 | b3
-        i = i+1
-        j = j+4
-
-    return hl
-
-
-def _rotateLeft(x, n):
-    "Rotate x (32 bit) left n bits circularly."
-
-    return (x << n) | (x >> (32-n))
-
-
-# ======================================================================
-# The real MD5 meat...
-#
-#   Implemented after "Applied Cryptography", 2nd ed., 1996,
-#   pp. 436-441 by Bruce Schneier.
-# ======================================================================
-
-# F, G, H and I are basic MD5 functions.
-
-def F(x, y, z):
-    return (x & y) | ((~x) & z)
-
-def G(x, y, z):
-    return (x & z) | (y & (~z))
-
-def H(x, y, z):
-    return x ^ y ^ z
-
-def I(x, y, z):
-    return y ^ (x | (~z))
-
-
-def XX(func, a, b, c, d, x, s, ac):
-    """Wrapper for call distribution to functions F, G, H and I.
-
-    This replaces functions FF, GG, HH and II from "Appl. Crypto.
-    Rotation is separate from addition to prevent recomputation
-    (now summed-up in one function).
-    """
-
-    res = 0
-    res = res + a + func(b, c, d)
-    res = res + x 
-    res = res + ac
-    res = res & 0xffffffff
-    res = _rotateLeft(res, s)
-    res = res & 0xffffffff
-    res = res + b
-
-    return res & 0xffffffff
+# iterations and function composition
+RoundQNext = lambda w,q,i: mod32bit(q[0] + rotleft(mod32bit(Fx[i](q[0],q[1],q[2]) + q[3] + AC[i] + w[Wx[i]]), RC[i]))
+DoRounds = lambda w,q,i: DoRounds(w, [RoundQNext(w,q,i)] + q[:3], i+1) if (i < ROUNDS) else q
+MD5CompressionInt = lambda ihvs, b: [mod32bit(ihvsi + qi) for ihvsi,qi in zip(ihvs, DoRounds(bin_to_int(b),ihvs,0))]
+arrSh = lambda x: [x[1],x[2],x[3],x[0]]
+arrUs = lambda x: [x[3],x[0],x[1],x[2]]
+MD5Compression = lambda ihv, b: arrUs(MD5CompressionInt(arrSh(ihv),b))
 
 
 class MD5:
-    "An implementation of the MD5 hash function in pure Python."
-
-    def __init__(self):
-        "Initialisation."
+    """Implementation of MD5
+    
+    Expected outputs:
+    >>> MD5(b'').hexdigest()
+    'd41d8cd98f00b204e9800998ecf8427e'
+    >>> MD5(b'a').hexdigest()
+    '0cc175b9c0f1b6a831c399e269772661'
+    >>> MD5(b'abc').hexdigest()
+    '900150983cd24fb0d6963f7d28e17f72'
+    >>> MD5(b'message digest').hexdigest()
+    'f96b697d7cb7938d525a2f31aaf161d0'
+    >>> MD5(b'abcdefghijklmnopqrstuvwxyz').hexdigest()
+    'c3fcd3d76192e4007dfb496cca67e13b'
+    >>> MD5(b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789').hexdigest()
+    'd174ab98d277d9f5a5611c2c9f419d9f'
+    >>> MD5(b'12345678901234567890123456789012345678901234567890123456789012345678901234567890').hexdigest()
+    '57edf4a22be3c955ac49da2e2107b67a'
+    """
+    
+    def __init__(self, data=None):
+        self._ihv = IHV0
+        self.bits = 0
+        self.buf = b''
+        if data:
+            self.update(data)
+    
+    def update(self, data):
+        self.bits += len(data) * 8
+        self.buf += data
+        while len(self.buf) >= BLOCK_SIZE:
+           to_compress, self.buf = self.buf[:BLOCK_SIZE], self.buf[BLOCK_SIZE:]
+           self._ihv = MD5Compression(self._ihv, to_compress)
+    
+    def digest(self):
+        # total reseved bytes
+        total_bytes = (self.bits // 8)
         
-        # Initial 128 bit message digest (4 times 32 bit).
-        self.A = 0
-        self.B = 0
-        self.C = 0
-        self.D = 0
+        # we deduct 1 extra byte for the 1 bit from the zero pading length
+        zerolen = (56 - (total_bytes + 1)) % 64
         
-        # Initial message length in bits(!).
-        self.length = 0
-        self.count = [0, 0]
+        pad = bytes([0x80] + [0] * zerolen) + (total_bytes * 8).to_bytes(8, 'little')
 
-        # Initial empty message as a sequence of bytes (8 bit characters).
-        self.input = []
-
-        # Length of the final hash (in bytes).
-        self.HASH_LENGTH = 16
-         
-        # Length of a block (the number of bytes hashed in every transform).
-        self.DATA_LENGTH = 64
-
-        # Call a separate init function, that can be used repeatedly
-        # to start from scratch on the same object.
-        self.init()
-
-
-    def init(self):
-        "Initialize the message-digest and set all fields to zero."
-
-        self.length = 0
-        self.input = []
-
-        # Load magic initialization constants.
-        self.A = 0x67452301
-        self.B = 0xefcdab89
-        self.C = 0x98badcfe
-        self.D = 0x10325476
-
-
-    def _transform(self, inp):
-        """Basic MD5 step transforming the digest based on the input.
-
-        Note that if the Mysterious Constants are arranged backwards
-        in little-endian order and decrypted with the DES they produce
-        OCCULT MESSAGES!
-        """
-
-        a, b, c, d = A, B, C, D = self.A, self.B, self.C, self.D
-
-        # Round 1.
-
-        S11, S12, S13, S14 = 7, 12, 17, 22
-
-        a = XX(F, a, b, c, d, inp[ 0], S11, 0xD76AA478) # 1 
-        d = XX(F, d, a, b, c, inp[ 1], S12, 0xE8C7B756) # 2 
-        c = XX(F, c, d, a, b, inp[ 2], S13, 0x242070DB) # 3 
-        b = XX(F, b, c, d, a, inp[ 3], S14, 0xC1BDCEEE) # 4 
-        a = XX(F, a, b, c, d, inp[ 4], S11, 0xF57C0FAF) # 5 
-        d = XX(F, d, a, b, c, inp[ 5], S12, 0x4787C62A) # 6 
-        c = XX(F, c, d, a, b, inp[ 6], S13, 0xA8304613) # 7 
-        b = XX(F, b, c, d, a, inp[ 7], S14, 0xFD469501) # 8 
-        a = XX(F, a, b, c, d, inp[ 8], S11, 0x698098D8) # 9 
-        d = XX(F, d, a, b, c, inp[ 9], S12, 0x8B44F7AF) # 10 
-        c = XX(F, c, d, a, b, inp[10], S13, 0xFFFF5BB1) # 11 
-        b = XX(F, b, c, d, a, inp[11], S14, 0x895CD7BE) # 12 
-        a = XX(F, a, b, c, d, inp[12], S11, 0x6B901122) # 13 
-        d = XX(F, d, a, b, c, inp[13], S12, 0xFD987193) # 14 
-        c = XX(F, c, d, a, b, inp[14], S13, 0xA679438E) # 15 
-        b = XX(F, b, c, d, a, inp[15], S14, 0x49B40821) # 16 
-
-        # Round 2.
-
-        S21, S22, S23, S24 = 5, 9, 14, 20
-
-        a = XX(G, a, b, c, d, inp[ 1], S21, 0xF61E2562) # 17 
-        d = XX(G, d, a, b, c, inp[ 6], S22, 0xC040B340) # 18 
-        c = XX(G, c, d, a, b, inp[11], S23, 0x265E5A51) # 19 
-        b = XX(G, b, c, d, a, inp[ 0], S24, 0xE9B6C7AA) # 20 
-        a = XX(G, a, b, c, d, inp[ 5], S21, 0xD62F105D) # 21 
-        d = XX(G, d, a, b, c, inp[10], S22, 0x02441453) # 22 
-        c = XX(G, c, d, a, b, inp[15], S23, 0xD8A1E681) # 23 
-        b = XX(G, b, c, d, a, inp[ 4], S24, 0xE7D3FBC8) # 24 
-        a = XX(G, a, b, c, d, inp[ 9], S21, 0x21E1CDE6) # 25 
-        d = XX(G, d, a, b, c, inp[14], S22, 0xC33707D6) # 26 
-        c = XX(G, c, d, a, b, inp[ 3], S23, 0xF4D50D87) # 27 
-        b = XX(G, b, c, d, a, inp[ 8], S24, 0x455A14ED) # 28 
-        a = XX(G, a, b, c, d, inp[13], S21, 0xA9E3E905) # 29 
-        d = XX(G, d, a, b, c, inp[ 2], S22, 0xFCEFA3F8) # 30 
-        c = XX(G, c, d, a, b, inp[ 7], S23, 0x676F02D9) # 31 
-        b = XX(G, b, c, d, a, inp[12], S24, 0x8D2A4C8A) # 32 
-
-        # Round 3.
-
-        S31, S32, S33, S34 = 4, 11, 16, 23
-
-        a = XX(H, a, b, c, d, inp[ 5], S31, 0xFFFA3942) # 33 
-        d = XX(H, d, a, b, c, inp[ 8], S32, 0x8771F681) # 34 
-        c = XX(H, c, d, a, b, inp[11], S33, 0x6D9D6122) # 35 
-        b = XX(H, b, c, d, a, inp[14], S34, 0xFDE5380C) # 36 
-        a = XX(H, a, b, c, d, inp[ 1], S31, 0xA4BEEA44) # 37 
-        d = XX(H, d, a, b, c, inp[ 4], S32, 0x4BDECFA9) # 38 
-        c = XX(H, c, d, a, b, inp[ 7], S33, 0xF6BB4B60) # 39 
-        b = XX(H, b, c, d, a, inp[10], S34, 0xBEBFBC70) # 40 
-        a = XX(H, a, b, c, d, inp[13], S31, 0x289B7EC6) # 41 
-        d = XX(H, d, a, b, c, inp[ 0], S32, 0xEAA127FA) # 42 
-        c = XX(H, c, d, a, b, inp[ 3], S33, 0xD4EF3085) # 43 
-        b = XX(H, b, c, d, a, inp[ 6], S34, 0x04881D05) # 44 
-        a = XX(H, a, b, c, d, inp[ 9], S31, 0xD9D4D039) # 45 
-        d = XX(H, d, a, b, c, inp[12], S32, 0xE6DB99E5) # 46 
-        c = XX(H, c, d, a, b, inp[15], S33, 0x1FA27CF8) # 47 
-        b = XX(H, b, c, d, a, inp[ 2], S34, 0xC4AC5665) # 48 
-
-        # Round 4.
-
-        S41, S42, S43, S44 = 6, 10, 15, 21
-
-        a = XX(I, a, b, c, d, inp[ 0], S41, 0xF4292244) # 49 
-        d = XX(I, d, a, b, c, inp[ 7], S42, 0x432AFF97) # 50 
-        c = XX(I, c, d, a, b, inp[14], S43, 0xAB9423A7) # 51 
-        b = XX(I, b, c, d, a, inp[ 5], S44, 0xFC93A039) # 52 
-        a = XX(I, a, b, c, d, inp[12], S41, 0x655B59C3) # 53 
-        d = XX(I, d, a, b, c, inp[ 3], S42, 0x8F0CCC92) # 54 
-        c = XX(I, c, d, a, b, inp[10], S43, 0xFFEFF47D) # 55 
-        b = XX(I, b, c, d, a, inp[ 1], S44, 0x85845DD1) # 56 
-        a = XX(I, a, b, c, d, inp[ 8], S41, 0x6FA87E4F) # 57 
-        d = XX(I, d, a, b, c, inp[15], S42, 0xFE2CE6E0) # 58 
-        c = XX(I, c, d, a, b, inp[ 6], S43, 0xA3014314) # 59 
-        b = XX(I, b, c, d, a, inp[13], S44, 0x4E0811A1) # 60 
-        a = XX(I, a, b, c, d, inp[ 4], S41, 0xF7537E82) # 61 
-        d = XX(I, d, a, b, c, inp[11], S42, 0xBD3AF235) # 62 
-        c = XX(I, c, d, a, b, inp[ 2], S43, 0x2AD7D2BB) # 63 
-        b = XX(I, b, c, d, a, inp[ 9], S44, 0xEB86D391) # 64 
-
-        A = (A + a) & 0xffffffff
-        B = (B + b) & 0xffffffff
-        C = (C + c) & 0xffffffff
-        D = (D + d) & 0xffffffff
-
-        self.A, self.B, self.C, self.D = A, B, C, D
-
-
-    # Down from here all methods follow the Python Standard Library
-    # API of the md5 module.
-
-    def update(self, inBuf):
-        """Add to the current message.
-
-        Update the md5 object with the string arg. Repeated calls
-        are equivalent to a single call with the concatenation of all
-        the arguments, i.e. m.update(a); m.update(b) is equivalent
-        to m.update(a+b).
-        """
-
-        leninBuf = (len(inBuf))
-
-        # Compute number of bytes mod 64.
-        index = (self.count[0] >> 3) & 0x3F
-
-        # Update number of bits.
-        self.count[0] = self.count[0] + (leninBuf << 3)
-        if self.count[0] < (leninBuf << 3):
-            self.count[1] = self.count[1] + 1
-        self.count[1] = self.count[1] + (leninBuf >> 29)
-
-        partLen = 64 - index
-
-        ident = lambda x: x
-        if leninBuf >= partLen:
-            self.input[index:] = list(map(ident, inBuf[:partLen]))
-            self._transform(_bytelist2long(self.input))
-            i = partLen
-            while i + 63 < leninBuf:
-                self._transform(_bytelist2long(list(map(ident, inBuf[i:i+64]))))
-                i = i + 64
-            else:
-                self.input = list(map(ident, inBuf[i:leninBuf]))
-        else:
-            i = 0
-            self.input = self.input + list(map(ident, inBuf))
-
-
+        temp = MD5()
+        temp._ihv = self._ihv 
+        temp.update(self.buf + pad)
+        digest_value = temp._ihv
+        
+        return int_to_bin(digest_value)
+        
+        
+    def hexdigest(self):
+        return binascii.hexlify(self.digest()).decode()
+    
     def ihv(self):
-        """Get the current iv, if there is a partial block, ignore it"""
-        # Store state in digest.
-        ihv = _long2bytes(self.A << 96, 16)[:4] + \
-                 _long2bytes(self.B << 64, 16)[4:8] + \
-                 _long2bytes(self.C << 32, 16)[8:12] + \
-                 _long2bytes(self.D, 16)[12:]
-        return ihv
+        return int_to_bin(self._ihv)
     
     def hexihv(self):
+        """Get the current IHV in hex
+        
+        >>> MD5().hexihv() == IHV0_HEX
+        True
+        >>> MD5(b'test').hexihv() == IHV0_HEX
+        True
+        >>> MD5(b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!?').hexihv()
+        '9d39fa2529070110ab7f132e7a9cacf3'
+        """
         return binascii.hexlify(self.ihv()).decode()
 
-    def digest(self):
-        """Terminate the message-digest computation and return digest.
-
-        Return the digest of the strings passed to the update()
-        method so far. This is a 16-byte string which may contain
-        non-ASCII characters, including null bytes.
-        """
-
-        A = self.A
-        B = self.B
-        C = self.C
-        D = self.D
-        input = [] + self.input
-        count = [] + self.count
-
-        index = (self.count[0] >> 3) & 0x3f
-
-        if index < 56:
-            padLen = 56 - index
-        else:
-            padLen = 120 - index
-
-        padding = [0x80] + [0x0] * 63
-        self.update(padding[:padLen])
-
-        # Append length (before padding).
-        bits = _bytelist2long(self.input[:56]) + count
-
-        self._transform(bits)
-
-        # Store state in digest.
-        digest = _long2bytes(self.A << 96, 16)[:4] + \
-                 _long2bytes(self.B << 64, 16)[4:8] + \
-                 _long2bytes(self.C << 32, 16)[8:12] + \
-                 _long2bytes(self.D, 16)[12:]
-
-        self.A = A 
-        self.B = B
-        self.C = C
-        self.D = D
-        self.input = input 
-        self.count = count 
-
-        return digest
+def md5(data=None):
+    return MD5(data)
 
 
-    def hexdigest(self):
-        """Terminate and return digest in HEX form.
-
-        Like digest() except the digest is returned as a string of
-        length 32, containing only hexadecimal digits. This may be
-        used to exchange the value safely in email or other non-
-        binary environments.
-        """
-
-        #ident = lambda x: x
-        #d = map(ident, self.digest())
-        #d = map(ord, d)
-        #d = map(lambda x:"%02x" % x, d)
-        #d = ''.join(d) #string.join(d, '')
-
-        return binascii.hexlify(self.digest()).decode()
-
-
-    def copy(self):
-        """Return a clone object.
-
-        Return a copy ('clone') of the md5 object. This can be used
-        to efficiently compute the digests of strings that share
-        a common initial substring.
-        """
-
-        return copy.deepcopy(self)
-
-
-# ======================================================================
-# Mimick Python top-level functions from standard library API
-# for consistency with the md5 module of the standard library.
-# ======================================================================
-
-def new(arg=None):
-    """Return a new md5 object.
-
-    If arg is present, the method call update(arg) is made.
-    """
-
-    md5 = MD5()
-    if arg:
-        md5.update(arg)
-
-    return md5
-
-
-def md5(arg=None):
-    """Same as new().
-
-    For backward compatibility reasons, this is an alternative
-    name for the new() function.
-    """
-
-    return new(arg)
+if __name__ == '__main__':
+    # Testing
+    
+    # check the the standard MD5 suite expected outputs in the class docstring
+    print('Doctests')
+    import doctest
+    doctest.testmod(verbose=True)
+    print()
+    
+    print('Unittests')
+    import unittest
+    import hashlib
+    
+    class _TestMD5(unittest.TestCase):
+        
+        def test_against_reference_implementation(self):
+            AMOUNT = 1024
+            import random, string
+            rand = random.Random()
+            rand.seed(4)
+            
+            randstring = lambda n: ''.join(rand.choice(string.ascii_uppercase + string.digits) for _ in range(n))
+            randbin = lambda n: bytes((random.getrandbits(8) for i in range(n)))
+            
+            for i in range(AMOUNT):
+                rlen = rand.randrange(4, 15)
+                randtype = rand.choice([randstring, randbin])
+                to_hash = randstring(rlen).encode()
+                expected = hashlib.md5(to_hash).hexdigest()
+                got = md5(to_hash).hexdigest()
+                self.assertEqual(expected, got, 'hashes for {} do not match'.format(to_hash.decode()))
+        
+        def test_boundary_padding(self):
+            for i in range(196):
+                to_hash = b'a' * i
+                expected = hashlib.md5(to_hash).hexdigest()
+                got = md5(to_hash).hexdigest()
+                self.assertEqual(expected, got, 'hashes for {} do not match'.format(to_hash.decode()))
+                
+        def test_hashing_resume(self):
+            basestr = b'asdfjkl;' * 32
+            expected = md5(basestr).hexdigest()
+            for i in range(len(basestr)):
+                a,b = basestr[:i], basestr[i:]
+                hashobj = md5(a)
+                discard = hashobj.digest()
+                hashobj.update(b)
+                got = hashobj.hexdigest()
+                self.assertEqual(expected, got, 'hashes split on index {} do not match'.format(basestr, i))
+        
+    unittest.main(verbosity=2)
