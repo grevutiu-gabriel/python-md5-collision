@@ -155,16 +155,16 @@ if __name__ == '__main__':
             rand = random.Random()
             rand.seed(4)
             
-            randstring = lambda n: ''.join(rand.choice(string.ascii_uppercase + string.digits) for _ in range(n))
+            randstring = lambda n: ''.join(rand.choice(string.ascii_uppercase + string.digits) for _ in range(n)).encode()
             randbin = lambda n: bytes((random.getrandbits(8) for i in range(n)))
             
             for i in range(AMOUNT):
                 rlen = rand.randrange(4, 15)
                 randtype = rand.choice([randstring, randbin])
-                to_hash = randstring(rlen).encode()
+                to_hash = randtype(rlen)
                 expected = hashlib.md5(to_hash).hexdigest()
                 got = md5(to_hash).hexdigest()
-                self.assertEqual(expected, got, 'hashes for {} do not match'.format(to_hash.decode()))
+                self.assertEqual(expected, got, 'hashes for {} do not match'.format(to_hash))
         
         def test_boundary_padding(self):
             for i in range(196):
